@@ -1,51 +1,43 @@
-import { useEffect, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import axios from 'axios'
-import FilterLabel from '../components/FilterLabel/FilterLabel'
-import Cards from '../components/Cards/Cards'
+import { useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Cards } from '../components/Cards/Cards'
+import { FilterLabel } from '../components/FilterLabel/FilterLabel'
 import LoadingIcon from '../components/UI/LoadingIcon'
-import { CountariesBoardType } from '../Types/Types'
-import { useLoaderData, useNavigation, useSearchParams } from 'react-router-dom'
+import { getRegionParams } from '../lib/getRegionParam'
+import { countriesSchema } from '../schemas/countries'
 
-type RequestType = {
-	request: {
-		url: string
-	}
-}
+const getCountries = async (paramRegion: ReturnType<typeof getRegionParams>) => {
+  const region = paramRegion === 'all' ? 'all' : `region/${paramRegion}`
+  const { data } = await axios.get(
+    `https://restcountries.com/v3.1/${region}?fields=name,population,region,capital,flags`
+  )
 
-export async function loader({ request }: RequestType) {
-	const url = new URL(request.url)
-	const paramsRegion = url.searchParams.get('region')
-	const region = paramsRegion ? `region/${paramsRegion}` : 'all'
-	const response = await axios.get(
-		`https://restcountries.com/v3.1/${region}?fields=name,population,region,capital,flags`
-	)
-	const { data } = response
-	return { data }
+  const result = await countriesSchema.safeParseAsync(data)
+
+  if (!result.success) {
+    console.error('Zod error:', result.error)
+    throw new Error('Cannot fetch the countries. Please try again later.')
+  }
+
+
+  return result.data
 }
 
 export default function CountriesBoard() {
-	const { data } = useLoaderData() as CountariesBoardType
-	const navigation = useNavigation()
-	const [loadingStatus, setLoadingStatus] = useState<boolean>(true)
-	const loading = navigation.state === 'loading' ? true : false
-	const [searchParams] = useSearchParams()
-	let countaries
+  const [searchParams] = useSearchParams()
+  const region = getRegionParams(searchParams)
+  const { data: countries, mutate } = useMutation(['countries'], () => getCountries(region))
 
-	if (searchParams.get('search') === null) {
-		countaries = data
-	} else {
-		const searchParam = searchParams.get('search')!.toLowerCase()
-		countaries = data.filter(country => country.name.common.toLowerCase().includes(searchParam))
-	}
+  useEffect(() => {
+    mutate()
+  }, [mutate, region])
 
-	useEffect(() => {
-		setLoadingStatus(loading)
-	}, [loading])
-
-	return (
-		<div>
-			<FilterLabel />
-			{loadingStatus ? <LoadingIcon /> : <Cards data={countaries} />}
-		</div>
-	)
+  return (
+    <div>
+      <FilterLabel />
+      {countries ? <Cards countries={countries} /> : <LoadingIcon />}
+    </div>
+  )
 }
